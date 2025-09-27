@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import threading
+import time
 import unicodedata
 import wave
 from dataclasses import dataclass
@@ -256,8 +257,14 @@ class PiperVoice:
         if syn_config is None:
             syn_config = _DEFAULT_SYNTHESIS_CONFIG
 
+        # Start timing for RTF calculation (includes phonemization)
+        start_time = time.perf_counter()
+        
         sentence_phonemes = self.phonemize(text)
         _LOGGER.debug("text=%s, phonemes=%s", text, sentence_phonemes)
+
+        total_audio_samples = 0
+        sample_rate = self.config.sample_rate
 
         for phonemes in sentence_phonemes:
             if not phonemes:
@@ -275,6 +282,9 @@ class PiperVoice:
             else:
                 # Audio only
                 audio = audio_result
+
+            # Track total audio samples for RTF calculation
+            total_audio_samples += len(audio)
 
             if syn_config.normalize_audio:
                 max_val = np.max(np.abs(audio))
@@ -349,6 +359,21 @@ class PiperVoice:
                 phoneme_id_samples=phoneme_id_samples,
                 phoneme_alignments=phoneme_alignments,
             )
+        
+        # Calculate and log RTF (Real Time Factor) after all sentences are processed
+        end_time = time.perf_counter()
+        synthesis_time = end_time - start_time
+        
+        if sample_rate > 0 and total_audio_samples > 0:
+            audio_duration = total_audio_samples / sample_rate
+            rtf = synthesis_time / audio_duration if audio_duration > 0 else 0.0
+            
+            _LOGGER.info(
+                "RTF Report - Synthesis time: %.3fs, Audio duration: %.3fs, RTF: %.3f",
+                synthesis_time, audio_duration, rtf
+            )
+        else:
+            _LOGGER.warning("Could not calculate RTF - no audio generated")
 
     def synthesize_wav(
         self,
