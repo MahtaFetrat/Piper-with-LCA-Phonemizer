@@ -179,6 +179,9 @@ class PiperVoice:
             raise ValueError(f"Unexpected phoneme type: {self.config.phoneme_type}")
 
         phonemes: list[list[str]] = []
+
+        print("ORIGINAL TEXT: ", text)
+
         text_parts = _PHONEME_BLOCK_PATTERN.split(text)
         prev_raw_phonemes = False
         for i, text_part in enumerate(text_parts):
@@ -230,7 +233,55 @@ class PiperVoice:
             # Remove empty phonemes
             phonemes.pop()
 
-        return phonemes
+        print("ORIGINAL PHONEMES: ", phonemes)
+
+        # Apply correct_phonemes enhancement if available
+        try:
+            print("PASSED TEXT: ", text.replace('--', ''))
+            corrected_phonemes = self._apply_phoneme_correction(text.replace('--', ''))
+
+            print("CORRECTED PHONEMES: ", corrected_phonemes)
+            
+            return corrected_phonemes
+        except Exception as e:
+            _LOGGER.warning("Failed to apply phoneme correction, using original phonemes: %s", e)
+            return phonemes
+
+    def _apply_phoneme_correction(self, text: str) -> list[list[str]]:
+        """
+        Apply phoneme correction using the correct_phonemes module.
+        
+        :param text: Original text
+        :param phonemes: Original phonemes from espeak
+        :return: Corrected phonemes
+        """
+        import json
+        import time
+        
+        # Prepare input data for correct_phonemes module (send only plain text)
+        input_data = {"text": text}
+        
+        # Write to /tmp/g2p_in
+        with open("/tmp/g2p_in", "w", encoding="utf-8") as f:
+            json.dump(input_data, f, ensure_ascii=False)
+        
+        # Wait a moment for the correct_phonemes module to process
+        time.sleep(0.1)
+        
+        # Read corrected phonemes from /tmp/g2p_out
+        try:
+            with open("/tmp/g2p_out", "r", encoding="utf-8") as f:
+                corrected_phonemes = json.load(f)
+            
+                # Convert back to the expected format (list of lists)
+                # The correct_phonemes module returns a flat list, so we need to split by sentences
+                # For now, we'll treat it as a single sentence since the original structure
+                # is lost in the correction process
+                return [corrected_phonemes]
+                
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            _LOGGER.warning("Could not read corrected phonemes: %s", e)
+            return phonemes
 
     def phonemes_to_ids(self, phonemes: list[str]) -> list[int]:
         """
