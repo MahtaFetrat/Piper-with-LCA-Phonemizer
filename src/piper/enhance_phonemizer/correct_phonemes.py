@@ -308,20 +308,32 @@ def correct_output(text, model, tokenizer, simplify=True):
 
 print("✅ Ezafe G2P correction server ready")
 
+# Import the communication helper
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from piper.communication import CrossPlatformServer
 
-while True:
-    with open("/tmp/g2p_in", "r", encoding="utf-8") as fin:
-        try:
-            data = json.loads(fin.readline())
-        except json.JSONDecodeError:
+# Initialize the server communicator
+server = CrossPlatformServer()
+
+try:
+    while True:
+        # Wait for data from the input channel (blocking)
+        data = server.wait_for_data()
+            
+        text = data.get("text", "").strip()
+
+        if not text:
             continue
 
-    text = data.get("text", "").strip()
+        corrected_phonemes = correct_output(text, model, tokenizer, simplify=args.simplify)
 
-    if not text:
-        continue
+        # Send response back
+        server.send_response(corrected_phonemes)
 
-    corrected_phonemes = correct_output(text, model, tokenizer, simplify=args.simplify)
-
-    with open("/tmp/g2p_out", "w", encoding="utf-8") as fout:
-        json.dump(corrected_phonemes, fout, ensure_ascii=False)
+except KeyboardInterrupt:
+    print("Server shutting down...")
+finally:
+    # Clean up communication files
+    server.cleanup()

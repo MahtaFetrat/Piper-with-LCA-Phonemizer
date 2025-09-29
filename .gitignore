@@ -20,3 +20,9 @@ src/piper/train/vits/monotonic_align/core.c
 *.so
 
 lightning_logs/
+
+
+fa_IR-amir-medium.onnx
+fa_IR-amir-medium.onnx.json
+
+ezafe_model_quantized/
