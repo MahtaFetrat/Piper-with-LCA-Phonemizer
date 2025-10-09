@@ -1,0 +1,2 @@
+Py setup.py build_ext --inplace
+Py -m piper -m fa_IR-amir-medium.onnx -f test.wav --debug -- 'با سلام و احترام'
