@@ -2,7 +2,6 @@ import pandas as pd
 import re
 import sys
 import argparse
-import json
 import torch
 from optimum.onnxruntime import ORTModelForTokenClassification
 from transformers import AutoTokenizer
@@ -13,11 +12,6 @@ from collections import defaultdict
 from hazm import stopwords_list, Lemmatizer
 from collections import Counter
 
-
-# Set up argument parser
-parser = argparse.ArgumentParser(description='G2P correction script')
-parser.add_argument('--simplify', action='store_true', default=False, help='Whether to simplify the output by removing special characters.')
-args = parser.parse_args()
 
 
 _ESPEAK_PHONEMIZER = EspeakPhonemizer(ESPEAK_DATA_DIR)
@@ -37,11 +31,6 @@ def persian_phonemization(text, language="fa"):
     result = ' '.join(sublist_strings)
     return result
 
-    
-# Load quantized ezafe model
-quantized_model_path = "ezafe_model_quantized"
-model = ORTModelForTokenClassification.from_pretrained(quantized_model_path)
-tokenizer = AutoTokenizer.from_pretrained(quantized_model_path)
 
 def predict_ezafe_simple(text, model, tokenizer):
     words = text.split()
@@ -280,10 +269,9 @@ def correct_output(text, model, tokenizer, simplify=True):
         else:
             word_queue.append((word, E, H))
 
-
     subsentences = augment_subsentences_with_homograph_phonemes(subsentences)
 
-    phoneme_words =[]
+    phoneme_words = []
 
     for subsentence in subsentences:
         for word, E, H, H_phoneme in subsentence:
@@ -306,34 +294,46 @@ def correct_output(text, model, tokenizer, simplify=True):
     return list(unicodedata.normalize("NFC", corrected_phonemes))
 
 
-print("✅ Ezafe G2P correction server ready")
+if __name__ == "__main__":
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='G2P correction script')
+    parser.add_argument('--simplify', action='store_true', default=False, help='Whether to simplify the output by removing special characters.')
 
-# Import the communication helper
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-from piper.communication import CrossPlatformServer
+    # Use parse_known_args to avoid crashing if Piper passes other CLI arguments
+    args, _ = parser.parse_known_args()
 
-# Initialize the server communicator
-server = CrossPlatformServer()
+    # Load quantized ezafe model
+    quantized_model_path = "ezafe_model_quantized"
+    model = ORTModelForTokenClassification.from_pretrained(quantized_model_path)
+    tokenizer = AutoTokenizer.from_pretrained(quantized_model_path)
 
-try:
-    while True:
-        # Wait for data from the input channel (blocking)
-        data = server.wait_for_data()
-            
-        text = data.get("text", "").strip()
+    # Import the communication helper
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+    from piper.communication import CrossPlatformServer
 
-        if not text:
-            continue
+    # Initialize the server communicator
+    server = CrossPlatformServer()
+    print("✅ Ezafe G2P correction server ready")
 
-        corrected_phonemes = correct_output(text, model, tokenizer, simplify=args.simplify)
+    try:
+        while True:
+            # Wait for data from the input channel (blocking)
+            data = server.wait_for_data()
 
-        # Send response back
-        server.send_response(corrected_phonemes)
+            text = data.get("text", "").strip()
 
-except KeyboardInterrupt:
-    print("Server shutting down...")
-finally:
-    # Clean up communication files
-    server.cleanup()
+            if not text:
+                continue
+
+            corrected_phonemes = correct_output(text, model, tokenizer, simplify=args.simplify)
+
+            # Send response back
+            server.send_response(corrected_phonemes)
+
+    except KeyboardInterrupt:
+        print("Server shutting down...")
+    finally:
+        # Clean up communication files
+        server.cleanup()

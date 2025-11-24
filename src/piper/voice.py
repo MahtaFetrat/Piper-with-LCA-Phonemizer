@@ -112,6 +112,10 @@ class PiperVoice:
     espeak_data_dir: Path = ESPEAK_DATA_DIR
     """Path to espeak-ng data directory."""
 
+    # For Persian text only
+    ezafe_model_path: Optional[str] = None
+    persian_phonemizer = None
+
     # For Arabic text only
     use_tashkeel: bool = True
     tashkeel_diacritizier: Optional[TashkeelDiacritizer] = None
@@ -233,55 +237,27 @@ class PiperVoice:
             # Remove empty phonemes
             phonemes.pop()
 
-        print("ORIGINAL PHONEMES: ", phonemes)
+        is_farsi = self.config.espeak_voice.startswith("fa")
+        if not is_farsi or not self.ezafe_model_path:
+            return phonemes
 
-        # Apply correct_phonemes enhancement if available
+        if self.persian_phonemizer is None:
+            _LOGGER.info("Initializing Enhanced Persian Phonemizer...")
+            try:
+                from .enhance_phonemizer.persian_phonemizer import PersianPhonemizer
+                self.persian_phonemizer = PersianPhonemizer(model_path=self.ezafe_model_path)
+            except Exception as e:
+                _LOGGER.error(f"Error initializing PersianPhonemizer: {e}")
+                return phonemes
+
         try:
-            print("PASSED TEXT: ", text.replace('--', ''))
-            corrected_phonemes = self._apply_phoneme_correction(text.replace('--', ''))
-
+            print("ORIGINAL PHONEMES: ", phonemes)
+            corrected_phonemes = self.persian_phonemizer.phonemize(text)
             print("CORRECTED PHONEMES: ", corrected_phonemes)
-            
             return corrected_phonemes
         except Exception as e:
-            _LOGGER.warning("Failed to apply phoneme correction, using original phonemes: %s", e)
+            _LOGGER.warning(f"Enhanced phonemization failed, falling back to standard: {e}")
             return phonemes
-
-    def _apply_phoneme_correction(self, text: str) -> list[list[str]]:
-        """
-        Apply phoneme correction using the correct_phonemes module.
-        
-        :param text: Original text
-        :param phonemes: Original phonemes from espeak
-        :return: Corrected phonemes
-        """
-        from .communication import CrossPlatformCommunicator
-        
-        # Prepare input data for correct_phonemes module (send only plain text)
-        input_data = {"text": text}
-        
-        # Use cross-platform communication
-        communicator = CrossPlatformCommunicator()
-        
-        try:
-            # Write data to input channel
-            communicator.write_data(input_data)
-            
-            # Read corrected phonemes from output channel (blocking)
-            corrected_phonemes = communicator.read_data()
-            
-            # Convert back to the expected format (list of lists)
-            # The correct_phonemes module returns a flat list, so we need to split by sentences
-            # For now, we'll treat it as a single sentence since the original structure
-            # is lost in the correction process
-            return [corrected_phonemes]
-                
-        except Exception as e:
-            _LOGGER.warning("Could not read corrected phonemes: %s", e)
-            return phonemes
-        finally:
-            # Clean up communication files
-            communicator.cleanup()
 
     def phonemes_to_ids(self, phonemes: list[str]) -> list[int]:
         """
@@ -310,7 +286,7 @@ class PiperVoice:
 
         # Start timing for RTF calculation (includes phonemization)
         start_time = time.perf_counter()
-        
+
         sentence_phonemes = self.phonemize(text)
         _LOGGER.debug("text=%s, phonemes=%s", text, sentence_phonemes)
 
@@ -410,15 +386,15 @@ class PiperVoice:
                 phoneme_id_samples=phoneme_id_samples,
                 phoneme_alignments=phoneme_alignments,
             )
-        
+
         # Calculate and log RTF (Real Time Factor) after all sentences are processed
         end_time = time.perf_counter()
         synthesis_time = end_time - start_time
-        
+
         if sample_rate > 0 and total_audio_samples > 0:
             audio_duration = total_audio_samples / sample_rate
             rtf = synthesis_time / audio_duration if audio_duration > 0 else 0.0
-            
+
             _LOGGER.info(
                 "RTF Report - Synthesis time: %.3fs, Audio duration: %.3fs, RTF: %.3f",
                 synthesis_time, audio_duration, rtf
