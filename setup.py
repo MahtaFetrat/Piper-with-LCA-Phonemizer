@@ -22,6 +22,11 @@ TASHKEEL_DATA_FILES = [
     )
 ]
 
+ENHANCE_DIR = MODULE_DIR / "enhance_phonemizer"
+ENHANCE_DATA_FILES = [
+    f.relative_to(MODULE_DIR) for f in ENHANCE_DIR.rglob("*") if f.is_file() and not f.name.endswith(".py")
+]
+
 setup(
     name="piper-tts",
     version="1.3.1",
@@ -76,14 +81,14 @@ setup(
             "onnx>=1,<2",
         ],
     },
-    packages=["piper", "piper.tashkeel", "piper.train"],
+    packages=["piper", "piper.tashkeel", "piper.train", "piper.enhance_phonemizer"],
     package_dir={"": "src"},
     include_package_data=True,
     package_data={
         "piper": [
             str(p)
             for p in itertools.chain(
-                PIPER_DATA_FILES, ESPEAK_NG_DATA_FILES, TASHKEEL_DATA_FILES
+                PIPER_DATA_FILES, ESPEAK_NG_DATA_FILES, TASHKEEL_DATA_FILES, ENHANCE_DATA_FILES
             )
         ],
     },

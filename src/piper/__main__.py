@@ -88,6 +88,17 @@ def main() -> None:
         default=[str(Path.cwd())],
         help="Data directory to check for voice models (default: current directory)",
     )
+    # Persian specific options
+    parser.add_argument(
+        "--ezafe-model-path",
+        "--ezafe_model_path",
+        help="Path to Ezafe model for Persian phonemization",
+    )
+    parser.add_argument(
+        "--no-persian-phonemizer",
+        action="store_true",
+        help="Disable enhanced Persian phonemizer (enabled by default for 'fa' voices)",
+    )
     #
     parser.add_argument(
         "--debug", action="store_true", help="Print DEBUG messages to console"
@@ -139,7 +150,12 @@ def main() -> None:
 
     # Load voice
     _LOGGER.debug("Loading voice: '%s'", model_path)
-    voice = PiperVoice.load(model_path, use_cuda=args.cuda)
+    voice = PiperVoice.load(
+        model_path,
+        use_cuda=args.cuda,
+        use_persian_phonemizer=(not args.no_persian_phonemizer),
+        ezafe_model_path=args.ezafe_model_path,
+    )
     syn_config = SynthesisConfig(
         speaker_id=args.speaker,
         length_scale=args.length_scale,

@@ -113,6 +113,7 @@ class PiperVoice:
     """Path to espeak-ng data directory."""
 
     # For Persian text only
+    use_persian_phonemizer: bool = True
     ezafe_model_path: Optional[str] = None
     persian_phonemizer = None
 
@@ -127,6 +128,8 @@ class PiperVoice:
         config_path: Optional[Union[str, Path]] = None,
         use_cuda: bool = False,
         espeak_data_dir: Union[str, Path] = ESPEAK_DATA_DIR,
+        use_persian_phonemizer: bool = True,
+        ezafe_model_path: Optional[str] = None,
     ) -> "PiperVoice":
         """
         Load an ONNX model and config.
@@ -135,6 +138,8 @@ class PiperVoice:
         :param config_path: Path to JSON voice config (defaults to model_path + ".json").
         :param use_cuda: True if CUDA (GPU) should be used instead of CPU.
         :param espeak_data_dir: Path to espeak-ng data dir (defaults to internal data).
+        :param use_persian_phonemizer: Use enhanced Persian phonemizer if applicable.
+        :param ezafe_model_path: Path to the Ezafe model for Persian.
         :return: Voice object.
         """
         if config_path is None:
@@ -164,6 +169,8 @@ class PiperVoice:
                 providers=providers,
             ),
             espeak_data_dir=Path(espeak_data_dir),
+            use_persian_phonemizer=use_persian_phonemizer,
+            ezafe_model_path=ezafe_model_path,
         )
 
     def phonemize(self, text: str) -> list[list[str]]:
@@ -179,7 +186,7 @@ class PiperVoice:
             # Phonemes = codepoints
             return [list(unicodedata.normalize("NFD", text))]
 
-        if self.config.phoneme_type != PhonemeType.ESPEAK:
+        if self.config.phoneme_type != PhonemeType.ESPEAK and self.config.phoneme_type != PhonemeType.CUSTOM:
             raise ValueError(f"Unexpected phoneme type: {self.config.phoneme_type}")
 
         phonemes: list[list[str]] = []
@@ -238,7 +245,7 @@ class PiperVoice:
             phonemes.pop()
 
         is_farsi = self.config.espeak_voice.startswith("fa")
-        if not is_farsi or not self.ezafe_model_path:
+        if not is_farsi or not self.use_persian_phonemizer:
             return phonemes
 
         if self.persian_phonemizer is None:
