@@ -3,6 +3,8 @@ import re
 import sys
 import argparse
 import torch
+import os
+import logging
 from optimum.onnxruntime import ORTModelForTokenClassification
 from transformers import AutoTokenizer
 import unicodedata
@@ -13,9 +15,15 @@ from hazm import stopwords_list, Lemmatizer
 from collections import Counter
 
 
+_LOGGER = logging.getLogger(__name__)
 
-_ESPEAK_PHONEMIZER = EspeakPhonemizer(ESPEAK_DATA_DIR)
+_ESPEAK_PHONEMIZER = None
 
+def get_espeak_phonemizer():
+    global _ESPEAK_PHONEMIZER
+    if _ESPEAK_PHONEMIZER is None:
+        _ESPEAK_PHONEMIZER = EspeakPhonemizer(ESPEAK_DATA_DIR)
+    return _ESPEAK_PHONEMIZER
 
 def _map_language_to_espeak_voice(language: str) -> str:
     lang = (language or "fa").lower()
@@ -25,8 +33,9 @@ def _map_language_to_espeak_voice(language: str) -> str:
 
 
 def persian_phonemization(text, language="fa"):
+    phonemizer = get_espeak_phonemizer()
     voice = _map_language_to_espeak_voice(language)
-    phoneme_sentences = _ESPEAK_PHONEMIZER.phonemize(voice, str(text))
+    phoneme_sentences = phonemizer.phonemize(voice, str(text))
     sublist_strings = [''.join(sublist) for sublist in phoneme_sentences]
     result = ' '.join(sublist_strings)
     return result
@@ -34,6 +43,8 @@ def persian_phonemization(text, language="fa"):
 
 def predict_ezafe_simple(text, model, tokenizer):
     words = text.split()
+    if not words:
+        return []
 
     inputs = tokenizer(
         words,
@@ -101,8 +112,28 @@ def remove_symbols(text):
     return text
 
 
-correct_url = "https://huggingface.co/datasets/MahtaFetrat/HomoRich-G2P-Persian/resolve/main/data/train-01.parquet"
-dataset = pd.read_parquet(correct_url)
+def load_homograph_dataset():
+    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "piper_lca")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, "train-01.parquet")
+    correct_url = "https://huggingface.co/datasets/MahtaFetrat/HomoRich-G2P-Persian/resolve/main/data/train-01.parquet"
+
+    if os.path.exists(cache_path):
+        try:
+            return pd.read_parquet(cache_path)
+        except Exception as e:
+            _LOGGER.warning(f"Failed to read cached dataset: {e}")
+
+    try:
+        _LOGGER.info(f"Downloading homograph dataset from {correct_url}...")
+        df = pd.read_parquet(correct_url)
+        df.to_parquet(cache_path)
+        return df
+    except Exception as e:
+        _LOGGER.warning(f"Failed to download homograph dataset: {e}. Homograph correction will be disabled.")
+        return pd.DataFrame()
+
+dataset = load_homograph_dataset()
 
 homograph_words = set(dataset['Homograph Grapheme'])
 
@@ -181,6 +212,9 @@ homograph_dict = {k: dict(v) for k, v in homograph_dict.items()}
 persian_stopwords = set(stopwords_list())
 
 def homograph_text_to_phoneme(word, sentence_words):
+    if not homograph_dict or lemmatizer is None:
+        return persian_phonemization(word)
+
     # Process context words (remove stopwords and count frequencies)
     context_words = Counter(
         lemmatizer.lemmatize(w) for w in sentence_words
