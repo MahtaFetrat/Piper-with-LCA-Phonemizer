@@ -28,6 +28,8 @@ ExternalProject_Add(espeak_ng_external
     PREFIX ${ESPEAKNG_BUILD_DIR}
     CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=${ESPEAKNG_INSTALL_DIR}
+        -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
         -DBUILD_SHARED_LIBS:BOOL=OFF
         -DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON
         -DUSE_ASYNC:BOOL=OFF
@@ -78,6 +80,7 @@ if(WIN32)
 else()
     set_target_properties(espeakbridge PROPERTIES
         PREFIX ""
+        SUFFIX ".so"
     )
 endif()
 

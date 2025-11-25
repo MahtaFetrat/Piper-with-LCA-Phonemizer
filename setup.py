@@ -6,7 +6,7 @@ from pathlib import Path
 from skbuild import setup
 
 MODULE_DIR = Path(__file__).parent / "src" / "piper"
-PIPER_DATA_FILES = ["py.typed", "espeakbridge.pyi"]
+PIPER_DATA_FILES = ["py.typed", "espeakbridge.pyi", "espeakbridge.so", "espeakbridge.pyd"]
 ESPEAK_NG_DATA_DIR = MODULE_DIR / "espeak-ng-data"
 ESPEAK_NG_DATA_FILES = [
     f.relative_to(MODULE_DIR) for f in ESPEAK_NG_DATA_DIR.rglob("*") if f.is_file()

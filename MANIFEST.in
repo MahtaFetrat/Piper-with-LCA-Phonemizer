@@ -1,3 +1,4 @@
 include COPYING
 recursive-include src/piper/espeak-ng-data *
 recursive-include src/piper/enhance_phonemizer *
+global-include *.so *.pyd *.dylib
