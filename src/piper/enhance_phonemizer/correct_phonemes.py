@@ -276,7 +276,16 @@ end_of_sentence_punctuation = {'.', '?', '!', '؟'}
 MAX_LENGTH = 20
 confidence_threshold = 0.7
 
-def correct_output(text, model, tokenizer, simplify=True):
+def split_sentences(text: str) -> list[str]:
+    if not text:
+        return []
+
+    text_marked = re.sub(r'([.،?!؟\n]+)', r'\1<SEP>', text)
+    sentences = [s.strip() for s in text_marked.split('<SEP>') if s.strip()]
+    return sentences
+
+
+def _process_sentence(text, model, tokenizer):
     word_tags = predict_ezafe_simple(text, model, tokenizer)
 
     word_queue = []
@@ -312,7 +321,26 @@ def correct_output(text, model, tokenizer, simplify=True):
 
             phoneme_words.append(phoneme)
 
-    corrected_phonemes = ' '.join(phoneme_words)
+    return ' '.join(phoneme_words)
+
+
+def correct_output(text, model, tokenizer, simplify=True):
+    if not text or not text.strip():
+        return []
+
+    sentences = split_sentences(text)
+
+    all_phonemes_parts = []
+
+    for sent in sentences:
+        try:
+            processed_part = _process_sentence(sent, model, tokenizer)
+            all_phonemes_parts.append(processed_part)
+        except Exception as e:
+            _LOGGER.error(f"Error processing sentence chunk '{sent}': {e}")
+            all_phonemes_parts.append(persian_phonemization(sent))
+
+    corrected_phonemes = ' '.join(all_phonemes_parts)
 
     if simplify:
         corrected_phonemes = remove_special_characters(corrected_phonemes)

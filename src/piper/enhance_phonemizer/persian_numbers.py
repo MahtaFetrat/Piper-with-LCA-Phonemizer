@@ -2,19 +2,19 @@ import re
 
 
 DIGITS_MAP = {
-    '0': 'صفر', '1': 'یک', '2': 'دو', '3': 'سه', '4': 'چهار',
-    '5': 'پنج', '6': 'شش', '7': 'هفت', '8': 'هشت', '9': 'نه'
+    '0': 'صِفر', '1': 'یک', '2': 'دو', '3': 'سه', '4': 'چهار',
+    '5': 'پنج', '6': 'شِش', '7': 'هفت', '8': 'هشت', '9': 'نُه'
 }
 
 TENS = {
-    10: 'ده', 11: 'یازده', 12: 'دوازده', 13: 'سیزده', 14: 'چهارده',
+    10: 'دَه', 11: 'یازده', 12: 'دوازده', 13: 'سیزده', 14: 'چهارده',
     15: 'پانزده', 16: 'شانزده', 17: 'هفده', 18: 'هجده', 19: 'نوزده',
     20: 'بیست', 30: 'سی', 40: 'چهل', 50: 'پنجاه',
     60: 'شصت', 70: 'هفتاد', 80: 'هشتاد', 90: 'نود'
 }
 
 HUNDREDS = {
-    100: 'صد', 200: 'دویست', 300: 'سیصد', 400: 'چهارصد', 500: 'پانصد',
+    100: 'صَد', 200: 'دویست', 300: 'سیصد', 400: 'چهارصد', 500: 'پانصد',
     600: 'ششصد', 700: 'هفتصد', 800: 'هشتصد', 900: 'نهصد'
 }
 
@@ -43,10 +43,10 @@ def _convert_three_digit(num: int) -> str:
 
 def num_to_text(num: int) -> str:
     if num == 0:
-        return 'صفر'
+        return 'صِفر'
 
     if num < 0:
-        return f"منفی {num_to_text(abs(num))}"
+        return f"مَنفی {num_to_text(abs(num))}"
 
     if num < 1000:
         return _convert_three_digit(num)
@@ -81,19 +81,19 @@ def _read_phone_chunk(chunk: str) -> str:
     if all(c == '0' for c in chunk):
         count = len(chunk)
         if count == 2:
-            return "دو صفر"
+            return "دو صِفر"
         elif count == 3:
-            return "سِتا صفر"
+            return "سِِتا صفر"
         elif count == 4:
             return "چهارتا صفر"
         else:
-            return f"{num_to_text(count)} تا صفر"
+            return f"{num_to_text(count)} تا صِفر"
 
     result_parts = []
     temp_chunk = chunk
 
     while temp_chunk.startswith('0'):
-        result_parts.append("صفر")
+        result_parts.append("صِفر")
         temp_chunk = temp_chunk[1:]
 
     if temp_chunk:
@@ -250,7 +250,7 @@ def find_and_normalize_numbers(text: str) -> str:
     text = text.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789'))\
                 .translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789'))
 
-    pattern = r'(?:\+|-)?\d+(?:,\d+)*'
+    pattern = r'(?:\+|-)?\d+(?:[,\-]\d+)*'
 
     def replace_match(match):
         original_str = match.group()
@@ -277,6 +277,7 @@ if __name__ == "__main__":
         "تماس بین المللی: +۹۸۹۱۵۱۰۰۲۰۳۰",
         "شارژ مستقیم ۰۹۳۵۲۰۰۳۰۴۰",
         "کد پستی ۱۱۱۱۱۰۰۰۰۰",
+        "و با تلفن ۰۲۱-۸۸۸۰۳۳۵۴ تماس بگیرید",
 
 
         "قیمت این کالا ۵,۴۰۰ تومان است",

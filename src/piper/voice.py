@@ -256,16 +256,7 @@ class PiperVoice:
         if not is_farsi or not self.use_persian_phonemizer:
             return phonemes
 
-        if self.persian_g2p_method == "external":
-            try:
-                corrected_phonemes = self._apply_phoneme_correction(original_text.replace('--', ''))
-                _LOGGER.debug("Corrected phonemes (external): %s", corrected_phonemes)
-                return corrected_phonemes
-            except Exception as e:
-                _LOGGER.warning("External phoneme correction failed, using original: %s", e)
-                return phonemes
-
-        if self.persian_phonemizer is None:
+        if self.persian_g2p_method == "model" and self.persian_phonemizer is None:
             _LOGGER.info("Initializing Enhanced Persian Phonemizer...")
             try:
                 from .enhance_phonemizer.persian_phonemizer import PersianPhonemizer
@@ -276,7 +267,10 @@ class PiperVoice:
 
         try:
             print("ORIGINAL PHONEMES: ", phonemes)
-            corrected_phonemes = self.persian_phonemizer.phonemize(text)
+            if self.persian_g2p_method == "external":
+                corrected_phonemes = self._apply_phoneme_correction(text.replace('--', ''))
+            else:
+                corrected_phonemes = self.persian_phonemizer.phonemize(text)
             print("CORRECTED PHONEMES: ", corrected_phonemes)
             return corrected_phonemes
         except Exception as e:
