@@ -115,6 +115,7 @@ class PiperVoice:
 
     # For Persian text only
     use_persian_phonemizer: bool = True
+    persian_g2p_method: str = "model"
     ezafe_model_path: Optional[str] = None
     persian_phonemizer = None
 
@@ -130,6 +131,7 @@ class PiperVoice:
         use_cuda: bool = False,
         espeak_data_dir: Union[str, Path] = ESPEAK_DATA_DIR,
         use_persian_phonemizer: bool = True,
+        persian_g2p_method: str = "model",
         ezafe_model_path: Optional[str] = None,
     ) -> "PiperVoice":
         """
@@ -140,6 +142,7 @@ class PiperVoice:
         :param use_cuda: True if CUDA (GPU) should be used instead of CPU.
         :param espeak_data_dir: Path to espeak-ng data dir (defaults to internal data).
         :param use_persian_phonemizer: Use enhanced Persian phonemizer if applicable.
+        :param persian_g2p_method: "model" (default) or "external".
         :param ezafe_model_path: Path to the Ezafe model for Persian.
         :return: Voice object.
         """
@@ -171,6 +174,7 @@ class PiperVoice:
             ),
             espeak_data_dir=Path(espeak_data_dir),
             use_persian_phonemizer=use_persian_phonemizer,
+            persian_g2p_method=persian_g2p_method,
             ezafe_model_path=ezafe_model_path,
         )
 
@@ -252,6 +256,15 @@ class PiperVoice:
         if not is_farsi or not self.use_persian_phonemizer:
             return phonemes
 
+        if self.persian_g2p_method == "external":
+            try:
+                corrected_phonemes = self._apply_phoneme_correction(original_text.replace('--', ''))
+                _LOGGER.debug("Corrected phonemes (external): %s", corrected_phonemes)
+                return corrected_phonemes
+            except Exception as e:
+                _LOGGER.warning("External phoneme correction failed, using original: %s", e)
+                return phonemes
+
         if self.persian_phonemizer is None:
             _LOGGER.info("Initializing Enhanced Persian Phonemizer...")
             try:
@@ -269,6 +282,43 @@ class PiperVoice:
         except Exception as e:
             _LOGGER.warning(f"Enhanced phonemization failed, falling back to standard: {e}")
             return phonemes
+
+
+    def _apply_phoneme_correction(self, text: str) -> list[list[str]]:
+        """
+        Apply phoneme correction using the correct_phonemes module.
+
+        :param text: Original text
+        :param phonemes: Original phonemes from espeak
+        :return: Corrected phonemes
+        """
+        from .communication import CrossPlatformCommunicator
+
+        # Prepare input data for correct_phonemes module (send only plain text)
+        input_data = {"text": text}
+
+        # Use cross-platform communication
+        communicator = CrossPlatformCommunicator()
+
+        try:
+            # Write data to input channel
+            communicator.write_data(input_data)
+
+            # Read corrected phonemes from output channel (blocking)
+            corrected_phonemes = communicator.read_data()
+
+            # Convert back to the expected format (list of lists)
+            # The correct_phonemes module returns a flat list, so we need to split by sentences
+            # For now, we'll treat it as a single sentence since the original structure
+            # is lost in the correction process
+            return [corrected_phonemes]
+
+        except Exception as e:
+            _LOGGER.warning("Could not read corrected phonemes: %s", e)
+            raise e
+        finally:
+            # Clean up communication files
+            communicator.cleanup()
 
     def phonemes_to_ids(self, phonemes: list[str]) -> list[int]:
         """
