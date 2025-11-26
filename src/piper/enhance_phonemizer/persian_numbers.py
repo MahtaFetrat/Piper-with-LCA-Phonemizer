@@ -204,7 +204,8 @@ def _smart_split_phone(phone_str: str, has_plus: bool = False) -> list:
 
 
 def phone_to_text(raw_input: str) -> str:
-    clean_input = raw_input.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    clean_input = raw_input.replace(' ', '').replace(
+        '-', '').replace('(', '').replace(')', '')
 
     persian_digits = '۰۱۲۳۴۵۶۷۸۹'
     english_digits = '0123456789'
@@ -246,8 +247,8 @@ def _is_likely_phone(num_str: str) -> bool:
 
 
 def find_and_normalize_numbers(text: str) -> str:
-    persian_to_english = str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789')
-    text = text.translate(persian_to_english)
+    text = text.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789'))\
+                .translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789'))
 
     pattern = r'(?:\+|-)?\d+(?:,\d+)*'
 
