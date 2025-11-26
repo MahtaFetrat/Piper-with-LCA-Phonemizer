@@ -20,6 +20,7 @@ from .const import BOS, EOS, PAD
 from .phoneme_ids import phonemes_to_ids
 from .phonemize_espeak import ESPEAK_DATA_DIR, EspeakPhonemizer
 from .tashkeel import TashkeelDiacritizer
+from .enhance_phonemizer.persian_numbers import find_and_normalize_numbers
 
 _ESPEAK_PHONEMIZER: Optional[EspeakPhonemizer] = None
 _ESPEAK_PHONEMIZER_LOCK = threading.Lock()
@@ -188,6 +189,9 @@ class PiperVoice:
 
         if self.config.phoneme_type != PhonemeType.ESPEAK and self.config.phoneme_type != PhonemeType.CUSTOM:
             raise ValueError(f"Unexpected phoneme type: {self.config.phoneme_type}")
+
+        if self.config.espeak_voice.startswith("fa"):
+            text = find_and_normalize_numbers(text)
 
         phonemes: list[list[str]] = []
 
