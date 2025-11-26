@@ -24,23 +24,22 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY http-service/requirements.txt .
+
+RUN pip install gdown
+COPY http-service/prepare_data.sh ./prepare_data.sh
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip && \
+    rm -rf /var/lib/apt/lists/* && \
+    chmod +x ./prepare_data.sh && \
+    ./prepare_data.sh && \
+    apt-get purge -y --auto-remove unzip
 
 RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
     pip3 install --no-cache-dir numpy==1.26.0 && \
     pip3 install --no-cache-dir --no-build-isolation -r requirements.txt
 
 COPY http-service/ ./http-service/
-RUN mv http-service/prepare_data.sh . && chmod +x ./prepare_data.sh
-
-RUN ./prepare_data.sh
-
-RUN apt-get purge -y --auto-remove unzip
 
 COPY --from=builder /app/dist/piper_tts-*linux*.whl ./dist/
 RUN pip3 install ./dist/piper_tts-*linux*.whl

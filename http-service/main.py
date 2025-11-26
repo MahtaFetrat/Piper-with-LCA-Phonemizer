@@ -5,14 +5,37 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from config import TTS_CONFIG, FASTAPI_CONFIG, TAGS_METADATA, SERVER_CONFIG
-from core import load_voices_config, clear_model_cache
+from core import load_voices_config, clear_model_cache, get_voices_config, load_voice_model
 from routes import router
+
+
+def cold_start():
+    print("🥶 Checking for Mana TTS cold start...")
+    voices = get_voices_config()
+    mana_loaded = False
+
+    for voice_key in voices.keys():
+        if "mana" in voice_key.lower():
+            print(f"   ⏳ Pre-loading model into memory: {voice_key}...")
+            try:
+                model = load_voice_model(voice_key)
+                model.synthesize(text="سلام")
+                print(f"   ✅ Cold start complete for: {voice_key}")
+                mana_loaded = True
+            except Exception as e:
+                print(f"   ❌ Failed cold start for {voice_key}: {e}")
+
+    if not mana_loaded:
+        print("   ⚠️ Mana voice not found in configuration, skipping cold start.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Starting TTS Microservice...")
     TTS_CONFIG["model_dir"].mkdir(parents=True, exist_ok=True)
     load_voices_config()
+
+    cold_start()
+
     print("✅ TTS Microservice ready!")
     yield
     print("🔄 Shutting down TTS Microservice...")
