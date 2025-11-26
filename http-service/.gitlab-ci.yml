@@ -1,0 +1,120 @@
+stages:
+  - verify
+  - build
+  - smoke
+
+default:
+  interruptible: true
+
+lint:
+  stage: verify
+  image: python:3.10-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+  before_script:
+    - pip install --no-cache-dir ruff==0.6.8
+  script:
+    - ruff check .
+  allow_failure: true
+  artifacts:
+    when: always
+    reports:
+      codequality: []
+    paths:
+      - .ruff_cache/
+
+docker-build:
+  stage: build
+  image: docker:26
+  services:
+    - name: docker:26-dind
+      command: ["--mtu=1460", "--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    IMAGE_NAME: $CI_REGISTRY_IMAGE
+    TAG_SHA: $CI_COMMIT_SHORT_SHA
+    TAG_BRANCH: $CI_COMMIT_REF_SLUG
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+  before_script:
+    - echo "Logging into registry $CI_REGISTRY as $CI_REGISTRY_USER"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    - |
+      set -eux
+      docker build \
+        --pull \
+        -t "$IMAGE_NAME:$TAG_SHA" \
+        -f Dockerfile .
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] && [ -z "$CI_COMMIT_TAG" ]; then
+        docker tag "$IMAGE_NAME:$TAG_SHA" "$IMAGE_NAME:latest"
+      fi
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        docker tag "$IMAGE_NAME:$TAG_SHA" "$IMAGE_NAME:$CI_COMMIT_TAG"
+      else
+        docker tag "$IMAGE_NAME:$TAG_SHA" "$IMAGE_NAME:$TAG_BRANCH"
+      fi
+      for TAG in "$TAG_SHA" ${CI_COMMIT_TAG:+$CI_COMMIT_TAG} ${CI_COMMIT_BRANCH:+$TAG_BRANCH} \
+                 $( [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] && echo latest ); do
+        [ -n "$TAG" ] && docker push "$IMAGE_NAME:$TAG"
+      done
+  artifacts:
+    when: on_success
+    expire_in: 1 week
+    reports:
+      dotenv:
+        ""
+
+smoke-test:
+  stage: smoke
+  image: docker:26
+  services:
+    - name: docker:26-dind
+      command: ["--mtu=1460", "--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    IMAGE_NAME: $CI_REGISTRY_IMAGE
+    TAG_SHA: $CI_COMMIT_SHORT_SHA
+    TAG_BRANCH: $CI_COMMIT_REF_SLUG
+  needs: ["docker-build"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    - |
+      set -eux
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        SELECTED_TAG="$CI_COMMIT_TAG"
+      elif [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        SELECTED_TAG="latest"
+      else
+        SELECTED_TAG="$TAG_BRANCH"
+      fi
+      IMAGE_REF="$IMAGE_NAME:$SELECTED_TAG"
+      echo "Using image: $IMAGE_REF"
+
+      docker pull "$IMAGE_REF"
+
+      CID=$(docker run -d -p 8001:8001 --rm "$IMAGE_REF")
+
+      for i in $(seq 1 60); do
+        if docker exec "$CID" wget -qO- http://localhost:8001/api/tts/health | grep -q healthy; then
+          echo "Health check passed"
+          break
+        fi
+        echo "Waiting for service... ($i)"
+        sleep 2
+      done
+
+      docker exec "$CID" wget -qO- http://localhost:8001/api/tts/health | grep -q healthy
+
+      docker exec "$CID" wget -qO- http://localhost:8001/api/tts/voices | head -c 500
+
+      docker stop "$CID"

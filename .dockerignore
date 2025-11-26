@@ -12,7 +12,11 @@
 !src/piper/tashkeel/model.onnx
 !src/piper/train/__init__.py
 
+!src/piper/enhance_phonemizer/
+
 !script/setup
 !script/dev_build
 !script/package
 !docker/entrypoint.sh
+
+!http-service/

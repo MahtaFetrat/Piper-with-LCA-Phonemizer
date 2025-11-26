@@ -1,0 +1,71 @@
+# Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+**/build/
+**/develop-eggs/
+**/dist/
+**/downloads/
+**/eggs/
+**/.eggs/
+**/lib64/
+**/parts/
+**/sdist/
+**/var/
+# **/wheels/
+**/*.egg-info/
+**/.installed.cfg
+**/*.egg
+
+# Node.js
+**/node_modules/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/.npm
+**/.yarn
+
+# Virtual environments
+**/venv/
+**/env/
+**/ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+**/.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker
+.dockerignore
+
+# Documentation
+README.md
+*.md
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Environment files (will be mounted separately)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+**/node_modules
+lib/medchatinput/dist

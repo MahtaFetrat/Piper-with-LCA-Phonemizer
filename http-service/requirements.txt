@@ -1,0 +1,10 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pandas>=2.0.0
+pyarrow>=14.0.0
+hazm>=0.10.0
+torch>=2.0.0 --index-url https://download.pytorch.org/whl/cpu
+optimum[onnxruntime]>=1.16.0
+transformers>=4.36.0
+gdown==5.2.0

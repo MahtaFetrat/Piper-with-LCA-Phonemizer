@@ -113,25 +113,17 @@ def remove_symbols(text):
 
 
 def load_homograph_dataset():
-    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "piper_lca")
-    os.makedirs(cache_dir, exist_ok=True)
-    cache_path = os.path.join(cache_dir, "train-01.parquet")
-    correct_url = "https://huggingface.co/datasets/MahtaFetrat/HomoRich-G2P-Persian/resolve/main/data/train-01.parquet"
+    homograph_dict_path = os.getenv("HOMOGRAPH_DICT_PATH", "./data/piper/homograph_dictionary.parquet")
+    if os.path.exists(homograph_dict_path):
+        return pd.read_parquet(homograph_dict_path)
+    else:
+        _LOGGER.info(f"HOMOGRAPH_DICT_PATH not set or file does not exist. Downloading dataset...")
+        homograph_dict_url = "https://huggingface.co/datasets/MahtaFetrat/HomoRich-G2P-Persian/resolve/main/data/train-01.parquet"
+        dataset = pd.read_parquet(homograph_dict_url)
+        dataset.to_parquet(homograph_dict_path)
+        _LOGGER.info(f"Dataset downloaded and saved to: {homograph_dict_path}")
+        return dataset
 
-    if os.path.exists(cache_path):
-        try:
-            return pd.read_parquet(cache_path)
-        except Exception as e:
-            _LOGGER.warning(f"Failed to read cached dataset: {e}")
-
-    try:
-        _LOGGER.info(f"Downloading homograph dataset from {correct_url}...")
-        df = pd.read_parquet(correct_url)
-        df.to_parquet(cache_path)
-        return df
-    except Exception as e:
-        _LOGGER.warning(f"Failed to download homograph dataset: {e}. Homograph correction will be disabled.")
-        return pd.DataFrame()
 
 dataset = load_homograph_dataset()
 

@@ -31,7 +31,7 @@ class PersianPhonemizer:
             return []
 
         try:
-            return [correct_output(text.replace('-', ' '), self.model, self.tokenizer)]
+            return [correct_output(text.replace('-', ' '), self.model, self.tokenizer, False)]
 
         except Exception as e:
             _LOGGER.error(f"Error in Persian phonemization: {e}")
