@@ -112,6 +112,23 @@ def remove_symbols(text):
     return text
 
 
+def split_punctuation(word):
+    if not word:
+        return "", "", ""
+
+    prefix = ""
+    while word and word[0] in SYMBOLS:
+        prefix += word[0]
+        word = word[1:]
+
+    suffix = ""
+    while word and word[-1] in SYMBOLS:
+        suffix = word[-1] + suffix
+        word = word[:-1]
+
+    return prefix, word, suffix
+
+
 def load_homograph_dataset():
     homograph_dict_path = os.getenv("HOMOGRAPH_DICT_PATH", "./data/piper/homograph_dictionary.parquet")
     if os.path.exists(homograph_dict_path):
@@ -255,13 +272,12 @@ def homograph_text_to_phoneme(word, sentence_words):
 
 def augment_subsentences_with_homograph_phonemes(subsentences):
     for i, subsentence in enumerate(subsentences):
-        subsentence = [(remove_symbols(w), E, H) for (w, E, H) in subsentence]
-        context_words = [w for w, E, H in subsentence]
+        context_words = [remove_symbols(w) for w, E, H in subsentence]
         updated_subsentence = []
 
-        for word, E, H in subsentence:
+        for clean_word, (word, E, H) in zip(context_words, subsentence):
             if H:
-                correct_phoneme = homograph_text_to_phoneme(word, context_words)
+                correct_phoneme = homograph_text_to_phoneme(clean_word, context_words)
 
                 updated_subsentence.append((word, E, H, correct_phoneme))
             else:
@@ -292,8 +308,19 @@ def _process_sentence(text, model, tokenizer):
     subsentences = []
     for i, word_tag in enumerate(word_tags):
         word = word_tag['word']
-        E = (word_tag['needs_ezafe'] and word_tag['confidence'] > confidence_threshold and not (word[-1] in SYMBOLS or i == len(word_tags) - 1))
-        H = (remove_symbols(word) in homograph_words)
+
+        clean_word = remove_symbols(word)
+        clean_next = "" if i == len(word_tags) - 1 else remove_symbols(word_tags[i+1]['word'])
+
+        E = (
+            word_tag['needs_ezafe']
+            and word_tag['confidence'] > confidence_threshold
+            and clean_word and len(clean_next) > 0
+            and not (word[-1] in SYMBOLS)
+            and not (word_tags[i+1]['word'] == "و")
+        )
+
+        H = (clean_word in homograph_words)
         eos_symbol = any(punct in word for punct in end_of_sentence_punctuation)
 
         if (eos_symbol) or (len(word_queue) >= MAX_LENGTH and not E) or (i == len(word_tags) - 1):
@@ -311,13 +338,24 @@ def _process_sentence(text, model, tokenizer):
     for subsentence in subsentences:
         for word, E, H, H_phoneme in subsentence:
 
-            phoneme = persian_phonemization(word, 'en' if is_english(word) else 'fa') if not H_phoneme else H_phoneme
+            prefix, core_word, suffix = split_punctuation(word)
+
+            if not core_word:
+                phoneme_words.append(',')
+                continue
+
+            phoneme = persian_phonemization(core_word, 'en' if is_english(core_word) else 'fa') if not H_phoneme else H_phoneme
 
             if E:
                 if phoneme.endswith('i') or phoneme.endswith('iː'):
                     phoneme = phoneme + 'je'
                 if not (phoneme.endswith('e') or phoneme.endswith('eː')):
                     phoneme = phoneme + 'e'
+
+            if prefix:
+                phoneme = ',' + phoneme
+            if suffix:
+                phoneme = phoneme + ','
 
             phoneme_words.append(phoneme)
 
