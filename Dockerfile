@@ -6,12 +6,19 @@ RUN apt-get update && \
 
 WORKDIR /app
 
+RUN pip install --upgrade pip && \
+    pip install scikit-build setuptools wheel cmake ninja
+
 COPY pyproject.toml setup.py CMakeLists.txt MANIFEST.in README.md ./
+COPY script/ ./script/
+
+RUN mkdir -p src/piper
+COPY src/piper/espeakbridge.c src/piper/espeakbridge.pyi ./src/piper/
+
+RUN python setup.py build_ext --inplace
+
 COPY src/piper/ ./src/piper/
-COPY script/setup script/dev_build script/package ./script/
-RUN script/setup --dev
-RUN script/dev_build
-RUN script/package
+RUN python setup.py bdist_wheel --dist-dir dist
 
 # -----------------------------------------------------------------------------
 
@@ -23,7 +30,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1
 
 WORKDIR /app
-
 
 COPY http-service/requirements.txt .
 
@@ -41,8 +47,8 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
 
 COPY http-service/ ./http-service/
 
-COPY --from=builder /app/dist/piper_tts-*linux*.whl ./dist/
-RUN pip3 install ./dist/piper_tts-*linux*.whl
+COPY --from=builder /app/dist/piper_tts-*.whl ./dist/
+RUN pip3 install ./dist/piper_tts-*.whl
 
 RUN useradd -m -u 1000 ttsuser && \
     chown -R ttsuser:ttsuser /app
