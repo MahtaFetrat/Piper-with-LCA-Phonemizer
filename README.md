@@ -102,7 +102,7 @@ We use a Persian Piper synthesizer model that we trained on [**Mana-TTS**](https
 If you use this work, please cite our paper:
 
 ```bibtex
-@misc{fetrat2025unifiedmodelsserviceorientedapproach,
+@misc{fetrat2025servicetts,
       title={Beyond Unified Models: A Service-Oriented Approach to Low Latency, Context Aware Phonemization for Real Time TTS}, 
       author={Mahta Fetrat and Donya Navabi and Zahra Dehghanian and Morteza Abolghasemi and Hamid R. Rabiee},
       year={2025},
