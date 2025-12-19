@@ -11,7 +11,7 @@ import unicodedata
 import string
 from piper.phonemize_espeak import EspeakPhonemizer, ESPEAK_DATA_DIR
 from collections import defaultdict
-from hazm import stopwords_list, Lemmatizer
+from .local_hazm import stopwords_list, Lemmatizer
 from collections import Counter
 
 
