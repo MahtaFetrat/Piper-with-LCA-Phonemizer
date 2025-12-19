@@ -199,7 +199,7 @@ class PiperVoice:
 
         phonemes: list[list[str]] = []
 
-        print("ORIGINAL TEXT: ", text)
+        # print("ORIGINAL TEXT: ", text)
 
         text_parts = _PHONEME_BLOCK_PATTERN.split(text)
         prev_raw_phonemes = False
@@ -266,12 +266,12 @@ class PiperVoice:
                 return phonemes
 
         try:
-            print("ORIGINAL PHONEMES: ", phonemes)
+            # print("ORIGINAL PHONEMES: ", phonemes)
             if self.persian_g2p_method == "external":
                 corrected_phonemes = self._apply_phoneme_correction(text.replace('--', ''))
             else:
                 corrected_phonemes = self.persian_phonemizer.phonemize(text)
-            print("CORRECTED PHONEMES: ", corrected_phonemes)
+            # print("CORRECTED PHONEMES: ", corrected_phonemes)
             return corrected_phonemes
         except Exception as e:
             _LOGGER.warning(f"Enhanced phonemization failed, falling back to standard: {e}")
@@ -328,6 +328,7 @@ class PiperVoice:
         text: str,
         syn_config: Optional[SynthesisConfig] = None,
         include_alignments: bool = False,
+        cancelled_callback: Optional[callable] = None,
     ) -> Iterable[AudioChunk]:
         """
         Synthesize one audio chunk per sentence from from text.
@@ -335,9 +336,13 @@ class PiperVoice:
         :param text: Text to synthesize.
         :param syn_config: Synthesis configuration.
         :param include_alignments: If True and the model supports it, include phoneme/audio alignments.
+        :param cancelled_callback: Optional callable that returns True if synthesis should stop.
         """
         if syn_config is None:
             syn_config = _DEFAULT_SYNTHESIS_CONFIG
+
+        if cancelled_callback and cancelled_callback():
+            return
 
         # Start timing for RTF calculation (includes phonemization)
         start_time = time.perf_counter()
@@ -345,10 +350,16 @@ class PiperVoice:
         sentence_phonemes = self.phonemize(text)
         _LOGGER.debug("text=%s, phonemes=%s", text, sentence_phonemes)
 
+        if cancelled_callback and cancelled_callback():
+            return
+
         total_audio_samples = 0
         sample_rate = self.config.sample_rate
 
         for phonemes in sentence_phonemes:
+            if cancelled_callback and cancelled_callback():
+                break
+
             if not phonemes:
                 continue
 
@@ -364,6 +375,9 @@ class PiperVoice:
             else:
                 # Audio only
                 audio = audio_result
+
+            if cancelled_callback and cancelled_callback():
+                break
 
             # Track total audio samples for RTF calculation
             total_audio_samples += len(audio)
