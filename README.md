@@ -31,7 +31,64 @@ The primary goal of this work is to enhance the phonemization quality of lightwe
 ├── README.md
 └── ... (original PiperTTS files)
 
-````
+```
 
+## Persian phonemizer setup
 
+Build this fork's wheel and install its optional Persian dependencies. On Windows,
+activate a virtual environment and run from the repository root in an x64 Visual
+Studio Developer PowerShell with the C++ build tools installed:
 
+```powershell
+python -m pip install build scikit-build setuptools wheel "cmake>=3.26,<4" ninja
+python -m build --wheel --no-isolation
+python -m pip install ".\dist\piper_tts-1.3.1-cp39-abi3-win_amd64.whl[persian]"
+```
+
+The `persian` extra installs the Ezafe model runtime and Parquet reader. Basic Piper
+and number normalization can be imported without these optional dependencies. The
+Ezafe model, tokenizer, homograph dictionary, and voice files are supplied separately.
+
+For local inference, prepare an Ezafe directory containing `model.onnx`, its model
+configuration, and tokenizer files, plus the HomoRich-G2P-Persian `train-01.parquet`
+dictionary. Set the resource paths before starting Piper:
+
+```powershell
+$env:HOMOGRAPH_DICT_PATH = "C:\Piper\train-01.parquet"
+$env:HF_HUB_OFFLINE = "1"
+python -m piper -m "C:\Piper\fa_IR-mana-medium.onnx" `
+  --ezafe-model-path "C:\Piper\ezafe_model_quantized" `
+  --input-file "C:\Piper\input.txt" --output-file "output.wav"
+```
+
+The matching voice `.onnx.json` must sit beside the voice model; save the input as
+UTF-8. Enhanced phonemization is enabled for Persian voices by default; use
+`--no-persian-phonemizer` for the base eSpeak phonemizer.
+
+Homograph data loads on first use. An explicit `HOMOGRAPH_DICT_PATH` is always local;
+an unreadable file logs an error and leaves homograph correction unavailable. With
+no explicit path, Piper uses `./data/piper/homograph_dictionary.parquet` and downloads
+the dictionary there if missing. Set `HF_HUB_OFFLINE=1` or `TRANSFORMERS_OFFLINE=1`
+to disable this download and Hugging Face model downloads. The
+`_load_homograph_data()` helper remains available for services that preload the
+dictionary and reject empty results before accepting synthesis requests.
+
+## Responsive Persian speech
+
+`PiperVoice.synthesize()` produces enhanced Persian audio incrementally. The
+phonemizer processes successive Ezafe model windows and yields phrases at sentence
+boundaries or after roughly 20 words. It keeps an Ezafe chain together and resolves
+homographs using the same phrase context as the non-streaming phonemizer; no extra
+punctuation is inserted at an artificial phrase boundary.
+
+Pass `cancelled_callback` to `synthesize()` to stop between model windows, words,
+and audio chunks. Cancellation is checked before producing the next chunk, so a
+new NVDA request does not have to wait for the remaining text to be synthesized.
+An ONNX inference already in progress must finish before cancellation is observed;
+an unusually long Ezafe chain can also produce a larger chunk. Preload the model
+and homograph dictionary before accepting speech, as the Sonata service does.
+
+`PiperVoice.phonemize_stream()` and `PersianPhonemizer.phonemize_stream()` expose
+the incremental phonemes to other callers. The existing `phonemize()` and
+`correct_output()` APIs keep their list return types. Text containing explicit
+`[[ phonemes ]]` blocks uses the standard frontend to preserve those blocks.

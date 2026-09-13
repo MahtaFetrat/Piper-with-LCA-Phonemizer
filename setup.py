@@ -24,7 +24,11 @@ TASHKEEL_DATA_FILES = [
 
 ENHANCE_DIR = MODULE_DIR / "enhance_phonemizer"
 ENHANCE_DATA_FILES = [
-    f.relative_to(MODULE_DIR) for f in ENHANCE_DIR.rglob("*") if f.is_file() and not f.name.endswith(".py")
+    f.relative_to(MODULE_DIR)
+    for f in ENHANCE_DIR.rglob("*")
+    if f.is_file()
+    and f.suffix not in {".py", ".pyc", ".pyo"}
+    and "__pycache__" not in f.parts
 ]
 
 setup(
@@ -51,6 +55,13 @@ setup(
         "onnxruntime>=1,<2",
     ],
     extras_require={
+        "persian": [
+            "torch>=2.2,<3",
+            "transformers>=4.55.4,<4.56",
+            "optimum-onnx[onnxruntime]==0.0.3",
+            "pandas>=2,<3",
+            "pyarrow>=10,<23",
+        ],
         "train": [
             "torch>=2,<3",
             "lightning>=2,<3",
@@ -84,6 +95,7 @@ setup(
     packages=["piper", "piper.tashkeel", "piper.train", "piper.enhance_phonemizer"],
     package_dir={"": "src"},
     include_package_data=True,
+    exclude_package_data={"": ["*.pyc", "*.pyo", "__pycache__/*", "*/__pycache__/*"]},
     package_data={
         "piper": [
             str(p)

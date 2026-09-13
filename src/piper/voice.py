@@ -10,17 +10,17 @@ import unicodedata
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, Iterator, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import onnxruntime
 
 from .config import PhonemeType, PiperConfig, SynthesisConfig
 from .const import BOS, EOS, PAD
+from .enhance_phonemizer.persian_numbers import find_and_normalize_numbers
 from .phoneme_ids import phonemes_to_ids
 from .phonemize_espeak import ESPEAK_DATA_DIR, EspeakPhonemizer
 from .tashkeel import TashkeelDiacritizer
-from .enhance_phonemizer.persian_numbers import find_and_normalize_numbers
 
 _ESPEAK_PHONEMIZER: Optional[EspeakPhonemizer] = None
 _ESPEAK_PHONEMIZER_LOCK = threading.Lock()
@@ -185,21 +185,43 @@ class PiperVoice:
         :param text: Text to phonemize.
         :return: List of phonemes for each sentence.
         """
-        global _ESPEAK_PHONEMIZER
-
         if self.config.phoneme_type == PhonemeType.TEXT:
             # Phonemes = codepoints
             return [list(unicodedata.normalize("NFD", text))]
 
-        if self.config.phoneme_type != PhonemeType.ESPEAK and self.config.phoneme_type != PhonemeType.CUSTOM:
+        if (
+            self.config.phoneme_type != PhonemeType.ESPEAK
+            and self.config.phoneme_type != PhonemeType.CUSTOM
+        ):
             raise ValueError(f"Unexpected phoneme type: {self.config.phoneme_type}")
 
         if self.config.espeak_voice.startswith("fa"):
-            text = find_and_normalize_numbers(text)
+            text = "".join(
+                part if part.startswith("[[") else find_and_normalize_numbers(part)
+                for part in _PHONEME_BLOCK_PATTERN.split(text)
+            )
+
+        if (
+            self.config.espeak_voice.startswith("fa")
+            and self.use_persian_phonemizer
+            and not _PHONEME_BLOCK_PATTERN.search(text)
+        ):
+            try:
+                if self.persian_g2p_method == "external":
+                    return self._apply_phoneme_correction(text.replace("--", ""))
+                return self._get_persian_phonemizer().phonemize(text)
+            except Exception as err:
+                _LOGGER.warning(
+                    "Enhanced phonemization failed, falling back to standard: %s", err
+                )
+
+        return self._phonemize_espeak(text)
+
+    def _phonemize_espeak(self, text: str) -> list[list[str]]:
+        """Phonemize normalized text while preserving explicit phoneme blocks."""
+        global _ESPEAK_PHONEMIZER
 
         phonemes: list[list[str]] = []
-
-        # print("ORIGINAL TEXT: ", text)
 
         text_parts = _PHONEME_BLOCK_PATTERN.split(text)
         prev_raw_phonemes = False
@@ -252,31 +274,68 @@ class PiperVoice:
             # Remove empty phonemes
             phonemes.pop()
 
-        is_farsi = self.config.espeak_voice.startswith("fa")
-        if not is_farsi or not self.use_persian_phonemizer:
-            return phonemes
+        return phonemes
 
-        if self.persian_g2p_method == "model" and self.persian_phonemizer is None:
-            _LOGGER.info("Initializing Enhanced Persian Phonemizer...")
+    def _get_persian_phonemizer(self):
+        """Load the optional Persian frontend on first use."""
+        if self.persian_phonemizer is None:
+            from .enhance_phonemizer.persian_phonemizer import PersianPhonemizer
+
+            _LOGGER.info("Initializing enhanced Persian phonemizer")
+            self.persian_phonemizer = PersianPhonemizer(
+                model_path=self.ezafe_model_path
+            )
+        return self.persian_phonemizer
+
+    def phonemize_stream(
+        self, text: str, cancelled_callback: Optional[Callable[[], bool]] = None
+    ) -> Iterator[list[str]]:
+        """Yield Persian phrases as they are ready, checking cancellation between them.
+
+        Other frontends retain their sentence-based behavior. Explicit phoneme
+        blocks use the standard frontend so their contents are left intact.
+        """
+        if cancelled_callback and cancelled_callback():
+            return
+
+        if (
+            self.config.phoneme_type in (PhonemeType.ESPEAK, PhonemeType.CUSTOM)
+            and self.config.espeak_voice.startswith("fa")
+            and self.use_persian_phonemizer
+            and self.persian_g2p_method == "model"
+            and not _PHONEME_BLOCK_PATTERN.search(text)
+        ):
+            text = find_and_normalize_numbers(text)
+            if cancelled_callback and cancelled_callback():
+                return
             try:
-                from .enhance_phonemizer.persian_phonemizer import PersianPhonemizer
-                self.persian_phonemizer = PersianPhonemizer(model_path=self.ezafe_model_path)
-            except Exception as e:
-                _LOGGER.error(f"Error initializing PersianPhonemizer: {e}")
-                return phonemes
-
-        try:
-            # print("ORIGINAL PHONEMES: ", phonemes)
-            if self.persian_g2p_method == "external":
-                corrected_phonemes = self._apply_phoneme_correction(text.replace('--', ''))
+                phonemizer = self._get_persian_phonemizer()
+            except Exception as err:
+                if cancelled_callback and cancelled_callback():
+                    return
+                _LOGGER.warning(
+                    "Enhanced phonemization failed, falling back to standard: %s", err
+                )
+                chunks = iter(self._phonemize_espeak(text))
             else:
-                corrected_phonemes = self.persian_phonemizer.phonemize(text)
-            # print("CORRECTED PHONEMES: ", corrected_phonemes)
-            return corrected_phonemes
-        except Exception as e:
-            _LOGGER.warning(f"Enhanced phonemization failed, falling back to standard: {e}")
-            return phonemes
+                # The frontend handles failures per unspoken phrase. Do not
+                # replay the entire text if an error occurs after yielding audio.
+                chunks = iter(
+                    phonemizer.phonemize_stream(
+                        text, cancelled_callback=cancelled_callback
+                    )
+                )
+        else:
+            chunks = iter(self.phonemize(text))
 
+        while not (cancelled_callback and cancelled_callback()):
+            try:
+                chunk = next(chunks)
+            except StopIteration:
+                return
+            if cancelled_callback and cancelled_callback():
+                return
+            yield chunk
 
     def _apply_phoneme_correction(self, text: str) -> list[list[str]]:
         """
@@ -328,10 +387,10 @@ class PiperVoice:
         text: str,
         syn_config: Optional[SynthesisConfig] = None,
         include_alignments: bool = False,
-        cancelled_callback: Optional[callable] = None,
+        cancelled_callback: Optional[Callable[[], bool]] = None,
     ) -> Iterable[AudioChunk]:
         """
-        Synthesize one audio chunk per sentence from from text.
+        Synthesize audio by sentence, or by phrase for enhanced Persian speech.
 
         :param text: Text to synthesize.
         :param syn_config: Synthesis configuration.
@@ -347,16 +406,20 @@ class PiperVoice:
         # Start timing for RTF calculation (includes phonemization)
         start_time = time.perf_counter()
 
-        sentence_phonemes = self.phonemize(text)
-        _LOGGER.debug("text=%s, phonemes=%s", text, sentence_phonemes)
-
-        if cancelled_callback and cancelled_callback():
-            return
+        sentence_phonemes = self.phonemize_stream(text, cancelled_callback)
 
         total_audio_samples = 0
         sample_rate = self.config.sample_rate
 
-        for phonemes in sentence_phonemes:
+        while True:
+            if cancelled_callback and cancelled_callback():
+                break
+
+            try:
+                phonemes = next(sentence_phonemes)
+            except StopIteration:
+                break
+
             if cancelled_callback and cancelled_callback():
                 break
 
@@ -364,6 +427,8 @@ class PiperVoice:
                 continue
 
             phoneme_ids = self.phonemes_to_ids(phonemes)
+            if cancelled_callback and cancelled_callback():
+                break
 
             phoneme_id_samples: Optional[np.ndarray] = None
             audio_result = self.phoneme_ids_to_audio(
@@ -445,6 +510,15 @@ class PiperVoice:
                     phoneme_alignments = None
                     _LOGGER.debug("Phoneme alignment failed")
 
+            if cancelled_callback and cancelled_callback():
+                break
+
+            if total_audio_samples == len(audio):
+                _LOGGER.debug(
+                    "First audio chunk ready after %.3fs",
+                    time.perf_counter() - start_time,
+                )
+
             yield AudioChunk(
                 sample_rate=self.config.sample_rate,
                 sample_width=2,
@@ -466,9 +540,11 @@ class PiperVoice:
 
             _LOGGER.info(
                 "RTF Report - Synthesis time: %.3fs, Audio duration: %.3fs, RTF: %.3f",
-                synthesis_time, audio_duration, rtf
+                synthesis_time,
+                audio_duration,
+                rtf,
             )
-        else:
+        elif not (cancelled_callback and cancelled_callback()):
             _LOGGER.warning("Could not calculate RTF - no audio generated")
 
     def synthesize_wav(

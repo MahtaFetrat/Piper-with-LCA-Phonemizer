@@ -1,12 +1,11 @@
 import logging
-import os
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Callable, Iterator, List, Optional, Union
 
 from optimum.onnxruntime import ORTModelForTokenClassification
 from transformers import AutoTokenizer
 
-from .correct_phonemes import correct_output
+from .correct_phonemes import correct_output, correct_output_stream
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,9 +29,19 @@ class PersianPhonemizer:
         if not text or not text.strip():
             return []
 
-        try:
-            return [correct_output(text.replace('-', ' '), self.model, self.tokenizer, False)]
+        return [
+            correct_output(text.replace("-", " "), self.model, self.tokenizer, False)
+        ]
 
-        except Exception as e:
-            _LOGGER.error(f"Error in Persian phonemization: {e}")
-            raise e
+    def phonemize_stream(
+        self,
+        text: str,
+        cancelled_callback: Optional[Callable[[], bool]] = None,
+    ) -> Iterator[List[str]]:
+        yield from correct_output_stream(
+            text.replace("-", " "),
+            self.model,
+            self.tokenizer,
+            simplify=False,
+            cancelled_callback=cancelled_callback,
+        )
