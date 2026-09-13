@@ -92,3 +92,40 @@ and homograph dictionary before accepting speech, as the Sonata service does.
 the incremental phonemes to other callers. The existing `phonemize()` and
 `correct_output()` APIs keep their list return types. Text containing explicit
 `[[ phonemes ]]` blocks uses the standard frontend to preserve those blocks.
+
+## Experimental Mana short speech
+
+Some isolated Persian words and letters produce high-frequency noise with Mana,
+even though their phonemes are correct in longer sentences. The optional
+`use_short_speech_repeat=True` argument to `PiperVoice.load()` handles a bounded
+single Persian word by repeating its phonemes internally and extracting only the
+first copy using the model's predicted durations. Cropping happens before Piper's
+usual normalization and volume processing. The returned chunk describes only the
+requested word. This is an inference workaround; it does not retrain Mana.
+
+The option is disabled by default. Listening confirmed an improvement for
+`دستیار`, but repetition still produces poor results for some isolated letters.
+It is not a complete fix for character announcements. Longer text, multiple
+words, and explicit `[[ phonemes ]]` input follow the ordinary synthesis path.
+Inference takes longer because the model generates the internal repetitions.
+
+Prepare a separate model copy with duration output using this fork's `alignment`
+extra (`onnx` is needed only for preparation):
+
+```powershell
+python -m pip install --force-reinstall --no-deps ".\dist\piper_tts-1.3.1-cp39-abi3-win_amd64.whl"
+python -m pip install ".\dist\piper_tts-1.3.1-cp39-abi3-win_amd64.whl[alignment]"
+python -m piper.prepare_short_speech `
+  --voice "C:\Piper\fa_IR-mana-medium.onnx" `
+  --output "C:\Piper\fa_IR-mana-medium.short-repeat.onnx"
+python -m piper -m "C:\Piper\fa_IR-mana-medium.short-repeat.onnx" `
+  --short-speech-repeat --no-persian-phonemizer `
+  --input-file "C:\Piper\input.txt" --output-file "output.wav"
+```
+
+The utility exposes the existing duration tensor and copies the configuration;
+the original model, learned weights, and graph operations are preserved. Existing
+output files are refused. Enabling the option requires the prepared model; an
+invalid duration result fails synthesis before any internal repetitions are
+returned. Cancellation discards pending audio. Omit `--short-speech-repeat` (or
+leave the Python argument false) to use ordinary synthesis.

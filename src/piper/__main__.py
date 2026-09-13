@@ -99,6 +99,11 @@ def main() -> None:
         action="store_true",
         help="Disable enhanced Persian phonemizer (enabled by default for 'fa' voices)",
     )
+    parser.add_argument(
+        "--short-speech-repeat",
+        action="store_true",
+        help="Experimental: repeat short Persian phonemes and play only their first aligned copy; requires a prepared model",
+    )
     #
     parser.add_argument(
         "--debug", action="store_true", help="Print DEBUG messages to console"
@@ -155,6 +160,7 @@ def main() -> None:
         use_cuda=args.cuda,
         use_persian_phonemizer=(not args.no_persian_phonemizer),
         ezafe_model_path=args.ezafe_model_path,
+        use_short_speech_repeat=args.short_speech_repeat,
     )
     syn_config = SynthesisConfig(
         speaker_id=args.speaker,

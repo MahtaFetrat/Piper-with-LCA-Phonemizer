@@ -20,6 +20,13 @@ from .const import BOS, EOS, PAD
 from .enhance_phonemizer.persian_numbers import find_and_normalize_numbers
 from .phoneme_ids import phonemes_to_ids
 from .phonemize_espeak import ESPEAK_DATA_DIR, EspeakPhonemizer
+from .short_speech import (
+    first_copy_sample_bounds,
+    frame_counts_to_samples,
+    is_short_persian_text,
+    plan_repeated_speech,
+    validate_duration_output,
+)
 from .tashkeel import TashkeelDiacritizer
 
 _ESPEAK_PHONEMIZER: Optional[EspeakPhonemizer] = None
@@ -124,6 +131,16 @@ class PiperVoice:
     tashkeel_diacritizier: Optional[TashkeelDiacritizer] = None
     taskeen_threshold: Optional[float] = 0.8
 
+    use_short_speech_repeat: bool = False
+    """Experimental Persian short-input repetition with aligned first-copy playback."""
+
+    def __post_init__(self) -> None:
+        if self.use_short_speech_repeat and self._is_persian_voice():
+            validate_duration_output(self.session, self.config.hop_length)
+
+    def _is_persian_voice(self) -> bool:
+        return self.config.espeak_voice.replace("-", "_").split("_")[0] == "fa"
+
     @staticmethod
     def load(
         model_path: Union[str, Path],
@@ -133,6 +150,7 @@ class PiperVoice:
         use_persian_phonemizer: bool = True,
         persian_g2p_method: str = "model",
         ezafe_model_path: Optional[str] = None,
+        use_short_speech_repeat: bool = False,
     ) -> "PiperVoice":
         """
         Load an ONNX model and config.
@@ -144,6 +162,8 @@ class PiperVoice:
         :param use_persian_phonemizer: Use enhanced Persian phonemizer if applicable.
         :param persian_g2p_method: "model" (default) or "external".
         :param ezafe_model_path: Path to the Ezafe model for Persian.
+        :param use_short_speech_repeat: Experimentally repeat short Persian phonemes and
+            crop the first copy; requires a model prepared with phoneme durations.
         :return: Voice object.
         """
         if config_path is None:
@@ -176,6 +196,7 @@ class PiperVoice:
             use_persian_phonemizer=use_persian_phonemizer,
             persian_g2p_method=persian_g2p_method,
             ezafe_model_path=ezafe_model_path,
+            use_short_speech_repeat=use_short_speech_repeat,
         )
 
     def phonemize(self, text: str) -> list[list[str]]:
@@ -408,6 +429,27 @@ class PiperVoice:
 
         sentence_phonemes = self.phonemize_stream(text, cancelled_callback)
 
+        repeat_short_speech = (
+            self.use_short_speech_repeat
+            and self._is_persian_voice()
+            and is_short_persian_text(text)
+        )
+        if repeat_short_speech:
+            # Also validate when callers enable the option after constructing a voice.
+            validate_duration_output(self.session, self.config.hop_length)
+            first = next(sentence_phonemes, None)
+            if cancelled_callback and cancelled_callback():
+                return
+            second = next(sentence_phonemes, None) if first is not None else None
+            if cancelled_callback and cancelled_callback():
+                return
+            sentence_phonemes = itertools.chain(
+                (chunk for chunk in (first, second) if chunk is not None),
+                sentence_phonemes,
+            )
+            # Preserve multi-chunk frontend behavior, without running it twice.
+            repeat_short_speech = first is not None and second is None
+
         total_audio_samples = 0
         sample_rate = self.config.sample_rate
 
@@ -427,12 +469,32 @@ class PiperVoice:
                 continue
 
             phoneme_ids = self.phonemes_to_ids(phonemes)
+            repeat_plan = (
+                plan_repeated_speech(phonemes, self.config.phoneme_id_map)
+                if repeat_short_speech
+                else None
+            )
+            inference_ids = phoneme_ids
+            if repeat_plan is not None:
+                inference_ids = self.phonemes_to_ids(list(repeat_plan.phonemes))
+                expected_original = repeat_plan.phoneme_ids[
+                    : repeat_plan.first_end_id
+                ] + tuple(self.config.phoneme_id_map[EOS])
+                if (
+                    tuple(inference_ids) != repeat_plan.phoneme_ids
+                    or tuple(phoneme_ids) != expected_original
+                ):
+                    raise ValueError(
+                        "Short speech boundaries do not match Piper's ID conversion"
+                    )
             if cancelled_callback and cancelled_callback():
                 break
 
             phoneme_id_samples: Optional[np.ndarray] = None
             audio_result = self.phoneme_ids_to_audio(
-                phoneme_ids, syn_config, include_alignments=include_alignments
+                inference_ids,
+                syn_config,
+                include_alignments=include_alignments or repeat_plan is not None,
             )
             if isinstance(audio_result, tuple):
                 # Audio + alignments
@@ -443,6 +505,32 @@ class PiperVoice:
 
             if cancelled_callback and cancelled_callback():
                 break
+
+            if repeat_plan is not None:
+                if phoneme_id_samples is None:
+                    raise ValueError(
+                        "Short speech repetition did not receive phoneme alignments"
+                    )
+                audio = np.asarray(audio)
+                samples = np.asarray(phoneme_id_samples)
+                if (
+                    audio.ndim != 1
+                    or samples.ndim != 1
+                    or not np.all(np.isfinite(audio))
+                ):
+                    raise ValueError(
+                        "Short speech repetition received invalid audio or alignments"
+                    )
+                start, end = first_copy_sample_bounds(repeat_plan, samples, len(audio))
+                audio = audio[start:end]
+                phoneme_id_samples = None
+                if include_alignments:
+                    # Metadata describes the requested first copy. Its cropped BOS/EOS
+                    # have zero duration, and the remaining samples keep their alignment.
+                    phoneme_id_samples = np.zeros(len(phoneme_ids), dtype=np.int64)
+                    phoneme_id_samples[
+                        repeat_plan.first_start_id : repeat_plan.first_end_id
+                    ] = samples[repeat_plan.first_start_id : repeat_plan.first_end_id]
 
             # Track total audio samples for RTF calculation
             total_audio_samples += len(audio)
@@ -663,8 +751,19 @@ class PiperVoice:
             return audio, None
 
         # Number of samples for each phoneme id
-        phoneme_id_samples = (result[1].squeeze() * self.config.hop_length).astype(
-            np.int64
-        )
+        durations = result[1].squeeze()
+        if self.use_short_speech_repeat and self._is_persian_voice():
+            if durations.ndim != 1:
+                raise ValueError(
+                    "Short speech repetition received invalid frame durations"
+                )
+            counts = frame_counts_to_samples(durations, self.config.hop_length)
+            if len(counts) != len(phoneme_ids) or sum(counts) != len(audio):
+                raise ValueError(
+                    "Short speech frame durations do not match the audio and input IDs"
+                )
+            phoneme_id_samples = np.asarray(counts, dtype=np.int64)
+        else:
+            phoneme_id_samples = (durations * self.config.hop_length).astype(np.int64)
 
         return audio, phoneme_id_samples
